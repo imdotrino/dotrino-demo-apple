@@ -26,6 +26,8 @@ RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + \
  && useradd --uid 1002 --user-group --home-dir /data/run/home --no-create-home --shell /bin/bash tester
 ENV PATH=/opt/demo/node_modules/.bin:$PATH
 COPY entrypoint.sh enlazar.mjs /opt/demo/
+# El bit de ejecución no viaja si el repo vive en un disco que no lo guarda (NTFS).
+RUN chmod 0755 /opt/demo/entrypoint.sh
 VOLUME /data
 # Solo si se define DEMO_HTTP_PORT (Timone exige un puerto); en local no se abre nada.
 EXPOSE 8080
