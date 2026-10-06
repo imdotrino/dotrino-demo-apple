@@ -150,16 +150,22 @@ preparar () {
 # ni a un repo.
 exportar () {
   [ -d "$COPIA" ] || die "no copy in $COPIA to export"
-  tar -C "$DATA" -czf - copia machine-id address | base64 -w0
+  # `exportar 8000` la parte en líneas de 8000: una por variable DEMO_COPIA_B64_<n>.
+  if [ -n "${2:-}" ]; then tar -C "$DATA" -czf - copia machine-id address | base64 -w "$2"
+  else tar -C "$DATA" -czf - copia machine-id address | base64 -w0; fi
   echo
 }
 
 importar_de_variable () {
-  [ -n "${DEMO_COPIA_B64:-}" ] || return 0
+  # Una variable, o en trozos DEMO_COPIA_B64_1, _2… (Timone limita cada valor a 8192
+  # caracteres y la copia no baja de ~56 000: la identidad va cifrada y no se comprime).
+  local b64=${DEMO_COPIA_B64:-} n=1 var
+  while var="DEMO_COPIA_B64_$n"; [ -n "${!var:-}" ]; do b64+=${!var}; n=$((n + 1)); done
+  [ -n "$b64" ] || return 0
   rm -rf "$COPIA"
   install -d -m 0711 "$DATA"
-  echo "$DEMO_COPIA_B64" | base64 -d | tar -C "$DATA" -xzpf - || die "DEMO_COPIA_B64 is not a copy made by 'exportar'"
-  say "copy loaded from DEMO_COPIA_B64"
+  echo "$b64" | base64 -d | tar -C "$DATA" -xzpf - || die "DEMO_COPIA_B64 is not a copy made by 'exportar'"
+  say "copy loaded from DEMO_COPIA_B64 ($(( n - 1 )) parts)"
 }
 
 # Un 200 en un puerto, para la plataforma que exige uno (Timone). No sirve nada de la demo.
@@ -221,7 +227,7 @@ say "running as uid $(id -u), effective capabilities $(awk '/^CapEff/ {print $2}
 
 case "${1:-servir}" in
   preparar) preparar ;;
-  exportar) exportar ;;
+  exportar) exportar "$@" ;;
   servir) servir ;;
   *) die "usage: preparar | servir | exportar" ;;
 esac

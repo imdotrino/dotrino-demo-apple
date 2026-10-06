@@ -55,7 +55,7 @@ docker run -d --name demo-apple --restart always \
 | `DEMO_RESET_SECONDS` | el contenedor sale pasado ese tiempo y `--restart` lo levanta desde la copia |
 | `DEMO_FIREWALL=1` | solo deja salir hacia el proxio (y el DNS). Necesita `NET_ADMIN`; si no puede aplicarse, no arranca |
 | `DEMO_PROXY` | el proxio (por defecto `wss://proxy.dotrino.com`) |
-| `DEMO_COPIA_B64` | la copia como una línea (sale de `exportar`), para plataformas sin disco persistente |
+| `DEMO_COPIA_B64`, o `DEMO_COPIA_B64_1`, `_2`… | la copia (sale de `exportar`; `exportar 8000` la parte en líneas de 8000, una por variable), para plataformas sin disco persistente |
 | `DEMO_HTTP_PORT` | contesta `ok` en ese puerto, para la plataforma que exige uno |
 | `DEMO_USER` / `DEMO_MACHINE_NAME` | solo al preparar: el usuario (`apple`) y el nombre de la máquina |
 
@@ -64,7 +64,8 @@ docker run -d --name demo-apple --restart always \
 [Timone](https://timone.dev) construye este repo (el `Dockerfile` de la raíz) y lo corre en
 Kubernetes. Las apps de Timone **no tienen disco persistente**, y no hace falta: la copia no
 cambia después de preparada, así que llega por la variable `DEMO_COPIA_B64`, y cada contenedor
-nuevo es un reset.
+nuevo es un reset. Timone limita cada variable a 8192 caracteres y la copia ronda los 56 000
+(la identidad va cifrada y no se comprime), así que va en trozos `DEMO_COPIA_B64_1`, `_2`…
 
 - **La copia nunca va en el repo ni en la imagen.** Lleva la bóveda de la demo: quien la tenga
   controla la cuenta (cambia la contraseña del revisor, se añade aparatos). La variable solo la
@@ -73,7 +74,7 @@ nuevo es un reset.
 
 ```bash
 docker run --rm -it -v demo-apple:/data dotrino-demo-apple preparar
-docker run --rm -v demo-apple:/data dotrino-demo-apple exportar   # una línea: va a DEMO_COPIA_B64
+docker run --rm -v demo-apple:/data dotrino-demo-apple exportar 8000   # una línea por variable DEMO_COPIA_B64_<n>
 ```
 
 - La app se crea por la API (`POST /projects` con este repo) y las variables
