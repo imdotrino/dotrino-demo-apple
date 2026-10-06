@@ -215,6 +215,10 @@ servir () {
   exit $code
 }
 
+# Con quién corremos: sin root no hay dos usuarios, y sin NET_ADMIN no hay firewall. En una
+# plataforma que no lo documenta (Timone) es lo primero que hay que saber, y sale en el log.
+say "running as uid $(id -u), effective capabilities $(awk '/^CapEff/ {print $2}' /proc/self/status)"
+
 case "${1:-servir}" in
   preparar) preparar ;;
   exportar) exportar ;;

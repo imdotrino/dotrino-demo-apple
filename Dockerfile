@@ -27,5 +27,7 @@ RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + \
 ENV PATH=/opt/demo/node_modules/.bin:$PATH
 COPY entrypoint.sh enlazar.mjs /opt/demo/
 VOLUME /data
+# Solo si se define DEMO_HTTP_PORT (Timone exige un puerto); en local no se abre nada.
+EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--", "/opt/demo/entrypoint.sh"]
 CMD ["servir"]
