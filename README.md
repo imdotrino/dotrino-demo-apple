@@ -77,7 +77,17 @@ docker run --rm -it -v demo-apple:/data dotrino-demo-apple preparar
 docker run --rm -v demo-apple:/data dotrino-demo-apple exportar 8000   # una línea por variable DEMO_COPIA_B64_<n>
 ```
 
-- La app se crea por la API (`POST /projects` con este repo) y las variables
-  `DEMO_COPIA_B64`, `DEMO_HTTP_PORT` y `DEMO_RESET_SECONDS` van en el panel o en `envVars`.
-- **El firewall** (`DEMO_FIREWALL=1`) necesita `NET_ADMIN`, que un contenedor de Kubernetes
-  normalmente no tiene: allí va apagado.
+- La app se crea por la API (`POST /projects` con este repo) con las variables en `envVars`:
+  los trozos `DEMO_COPIA_B64_<n>`, `DEMO_HTTP_PORT=8080` y `DEMO_RESET_SECONDS=3600`. Cada push a
+  `main` redespliega solo (Timone registra un webhook), y redesplegar también es un reset.
+
+**En marcha** desde el 2026-10-06: proyecto `cmuw6jfpp00107hgeav2mbj12`,
+`imdotrino-dotrino-demo-apple.timone.dev` (esa URL solo contesta `ok`; la demo se usa desde la
+app). Lo que dice la primera línea del log, comprobado allí:
+
+- corre como **root** con las capacidades por defecto de Docker (`CapEff a80425fb`): hay
+  `SETUID`/`SETGID`, así que los dos usuarios funcionan y el revisor no lee la bóveda;
+- **no hay `NET_ADMIN`**: el firewall va apagado y la shell del revisor tiene salida a internet.
+  Aceptado por el dueño (Timone es un servicio en desarrollo de un conocido).
+
+Logs: `GET /projects/<id>/logs?tail=200` con el token de la API (Settings → API tokens).
