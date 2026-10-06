@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/demo
 ARG VAULTD_VERSION=0.141.1
-ARG AGENT_VERSION=0.16.0
+ARG AGENT_VERSION=0.16.1
 RUN npm init -y >/dev/null \
  && npm install --no-fund --no-audit --save-exact \
       @dotrino/vaultd@${VAULTD_VERSION} @dotrino/terminal-agent@${AGENT_VERSION}
