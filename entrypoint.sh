@@ -168,6 +168,57 @@ importar_de_variable () {
   say "copy loaded from DEMO_COPIA_B64 ($(( n - 1 )) parts)"
 }
 
+# LOS PEDIDOS DE MUESTRA, para la revisión de la app Dotrino (la pestaña Pedidos): el revisor
+# entra con el mismo usuario y tiene que ver algo que aprobar. En cada arranque, sobre la copia
+# recién restaurada: el usuario del revisor recibe el permiso de aprobar, y se enlaza un servicio
+# («Servidor de prueba») que pide las claves de su cajón cada DEMO_REQUEST_SECONDS. No toca la
+# copia: la dirección y la contraseña siguen siendo las mismas, y un reset lo rehace.
+SERVICIO=demo
+pedidos_de_muestra () {
+  local id inv sid codigo=/tmp/demo-service-code out=/tmp/demo-service-enroll
+  id=$(as_vault dotrino-vault logins | sed 's/\x1b\[[0-9;]*m//g' | awk -v u="$USUARIO@" 'index($0, u) {print $3; exit}')
+  [ -n "$id" ] || die "sample requests: login $USUARIO not found"
+  reintentar as_vault dotrino-vault caps "$id" +aprueba || die "sample requests: could not grant approve to $id"
+  reintentar as_vault dotrino-vault secret set "$SERVICIO" API_KEY "clave-de-muestra" || die "sample requests: could not store the sample key"
+  inv=$(as_vault dotrino-vault pair --quiet --service "$SERVICIO" --name "Servidor de prueba") \
+    || die "sample requests: could not create the invitation"
+  install -d -o tester -g tester -m 0700 "$RUN/servicio"
+  as_tester env DOTRINO_ENV_HOME="$RUN/servicio" \
+    dotrino-env enroll --ns "$SERVICIO" --code "$inv" >"$out" 2>&1 &
+  local epid=$!
+  # El servicio enseña un código y un ID; la bóveda lo aprueba (como con la máquina).
+  for _ in $(seq 1 150); do grep -q 'dotrino-vault approve' "$out" 2>/dev/null && break; sleep 0.2; done
+  codigo=$(sed 's/\x1b\[[0-9;]*m//g' "$out" | awk '/dotrino-vault approve/ {print $3; exit}')
+  sid=$(sed 's/\x1b\[[0-9;]*m//g' "$out" | awk '/Dispositivo:/ {print $2; exit}')
+  [ -n "$codigo" ] && [ -n "$sid" ] || die "sample requests: the sample service never asked to be approved"
+  as_vault dotrino-vault approve "$codigo" >/dev/null || die "sample requests: could not approve the sample service"
+  wait "$epid" || die "sample requests: the sample service could not enroll"
+  # Pedir aprobación es el defecto de la bóveda: el servicio no recibe sus claves hasta que un
+  # aparato con «aprueba» dice que sí. No hay nada más que marcar.
+  rm -f "$out"
+  say "sample requests on: $USUARIO ($id) can approve; $sid asks every ${DEMO_REQUEST_SECONDS:-180}s"
+}
+
+# La bóveda aplica un cambio del acta cada vez: el siguiente, pegado, puede llegar antes de que
+# termine. Se reintenta unos segundos y, si sigue sin entrar, se dice.
+reintentar () {
+  for _ in 1 2 3 4 5 6; do "$@" >/dev/null 2>&1 && return 0; sleep 1; done
+  "$@" >/dev/null
+}
+
+# Un pedido cada vez, con un comando distinto (la bóveda recuerda una hora el comando aprobado:
+# repetirlo no volvería a preguntar). El que nadie contesta vence solo.
+bucle_de_pedidos () {
+  local n=0
+  cd "$RUN/home"
+  while true; do
+    n=$((n + 1))
+    as_tester env DOTRINO_ENV_HOME="$RUN/servicio" DOTRINO_ENV_QUIET=1 \
+      timeout "${DEMO_REQUEST_SECONDS:-180}" dotrino-env run --ns "$SERVICIO" -- /bin/echo "deploy $n" >/dev/null 2>&1 || true
+    sleep 5
+  done
+}
+
 # Un 200 en un puerto, para la plataforma que exige uno (Timone). No sirve nada de la demo.
 puerto_http () {
   [ -n "${DEMO_HTTP_PORT:-}" ] || return 0
@@ -205,17 +256,20 @@ servir () {
   local apid=$!
   HTTP_PID=
   puerto_http
+  # Apagable con DEMO_REQUESTS=0 (la demo queda como estaba: solo la terminal).
+  local ppid=
+  if [ "${DEMO_REQUESTS:-1}" = 1 ]; then pedidos_de_muestra; bucle_de_pedidos & ppid=$!; fi
 
   # Reset periódico: salir y que la política de reinicio (docker --restart, Fly) lo levante
   # desde la copia.
   local rpid=
   if [ -n "${DEMO_RESET_SECONDS:-}" ]; then sleep "$DEMO_RESET_SECONDS" & rpid=$!; fi
 
-  trap 'kill -TERM $vpid $apid ${rpid:-} ${HTTP_PID:-} 2>/dev/null || true' TERM INT
+  trap 'kill -TERM $vpid $apid ${rpid:-} ${HTTP_PID:-} ${ppid:-} 2>/dev/null || true' TERM INT
   set +e
   wait -n $vpid $apid ${rpid:-} ${HTTP_PID:-}
   local code=$?
-  kill -TERM $vpid $apid ${rpid:-} ${HTTP_PID:-} 2>/dev/null
+  kill -TERM $vpid $apid ${rpid:-} ${HTTP_PID:-} ${ppid:-} 2>/dev/null
   wait
   say "stopped (exit $code)"
   exit $code
