@@ -258,7 +258,12 @@ servir () {
   puerto_http
   # Apagable con DEMO_REQUESTS=0 (la demo queda como estaba: solo la terminal).
   local ppid=
-  if [ "${DEMO_REQUESTS:-1}" = 1 ]; then pedidos_de_muestra; bucle_de_pedidos & ppid=$!; fi
+  # En un subshell: si no se pueden montar, se dice y la terminal de la demo sigue sirviendo
+  # (un `die` aquí metería el contenedor en un bucle de reinicios y tumbaría las dos demos).
+  if [ "${DEMO_REQUESTS:-1}" = 1 ]; then
+    if ( pedidos_de_muestra ); then bucle_de_pedidos & ppid=$!
+    else say "sample requests are OFF (the error is above); the terminal demo keeps running"; fi
+  fi
 
   # Reset periódico: salir y que la política de reinicio (docker --restart, Fly) lo levante
   # desde la copia.

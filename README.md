@@ -7,6 +7,19 @@ shell real.
 
 No es una demo abierta: es una sola cuenta, para la revisión.
 
+## También para la app Dotrino: pedidos de muestra
+
+El mismo usuario sirve para revisar la app **Dotrino** (la pestaña Pedidos). En cada arranque,
+sobre la copia recién restaurada, el usuario del revisor recibe el permiso de aprobar y se
+enlaza un servicio, «Servidor de prueba», que pide las claves de su cajón `demo` cada
+`DEMO_REQUEST_SECONDS` (180 por defecto). El revisor entra en la app con «Iniciar sesión», abre
+Pedidos y ve un pedido que puede aprobar o denegar.
+
+No toca la copia: la dirección y la contraseña no cambian, y un reset lo rehace.
+`DEMO_REQUESTS=0` lo apaga. Si no se puede montar, lo dice en el log y la terminal sigue.
+
+Necesita la app Dotrino ≥ 0.4.21 (Android, con Identidad Dotrino ≥ 0.2.6) o ≥ 0.4.13 (iOS).
+
 ## Cómo está hecho
 
 | Usuario | Corre | Puede tocar |
