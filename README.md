@@ -69,6 +69,8 @@ docker run -d --name demo-apple --restart always \
 | `DEMO_FIREWALL=1` | solo deja salir hacia el proxio (y el DNS). Necesita `NET_ADMIN`; si no puede aplicarse, no arranca |
 | `DEMO_PROXY` | el proxio (por defecto `wss://proxy.dotrino.com`) |
 | `DEMO_COPIA_B64`, o `DEMO_COPIA_B64_1`, `_2`… | la copia (sale de `exportar`; `exportar 8000` la parte en líneas de 8000, una por variable), para plataformas sin disco persistente |
+| `DEMO_PASSWORD` | la contraseña del revisor (12 o más). Cada arranque recrea su usuario con ella: misma dirección. Sin la variable vale la que se tecleó al preparar |
+| `DEMO_REQUESTS=0` / `DEMO_REQUEST_SECONDS` | apaga los pedidos de muestra / cada cuánto se pide (180) |
 | `DEMO_HTTP_PORT` | contesta `ok` en ese puerto, para la plataforma que exige uno |
 | `DEMO_USER` / `DEMO_MACHINE_NAME` | solo al preparar: el usuario (`apple`) y el nombre de la máquina |
 

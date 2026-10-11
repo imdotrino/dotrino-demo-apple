@@ -168,6 +168,23 @@ importar_de_variable () {
   say "copy loaded from DEMO_COPIA_B64 ($(( n - 1 )) parts)"
 }
 
+# LA CONTRASEÑA DEL REVISOR, por variable. La que se tecleó al preparar vive solo en la copia
+# (nadie más la tiene: la bóveda no la guarda en claro) y `logins passwd` pide la actual. Con
+# DEMO_PASSWORD, cada arranque quita el usuario y lo vuelve a crear con esa contraseña: la
+# dirección es la misma (sale del perfil) y lo único que cambia es el ID de su aparato. Va a una
+# variable que solo ve el dueño, nunca al repo ni a la imagen.
+clave_del_revisor () {
+  [ -n "${DEMO_PASSWORD:-}" ] || return 0
+  [ "${#DEMO_PASSWORD}" -ge 12 ] || die "reviewer password: DEMO_PASSWORD needs 12 characters or more"
+  local vault_env="env -i PATH=$PATH HOME=$RUN/vault LANG=C.UTF-8 DOTRINO_VAULT_DIR=$RUN/vault XDG_RUNTIME_DIR=/run/vault PROXY_URL=$PROXY"
+  reintentar as_vault dotrino-vault logins rm "$USUARIO" || die "reviewer password: could not remove the old login"
+  # `logins add` lee la contraseña de una terminal: `script` le da una, y aquí se le teclea.
+  (sleep 2; echo "$DEMO_PASSWORD"; sleep 1; echo "$DEMO_PASSWORD"; sleep 4) \
+    | script -qec "setpriv --reuid=vault --regid=vault --init-groups $vault_env dotrino-vault logins add '$USUARIO' 'App Review' +aprueba" /dev/null >/dev/null 2>&1
+  as_vault dotrino-vault logins | grep -q "$USUARIO@" || die "reviewer password: the login was not created"
+  say "reviewer login reset from DEMO_PASSWORD (same address)"
+}
+
 # LOS PEDIDOS DE MUESTRA, para la revisión de la app Dotrino (la pestaña Pedidos): el revisor
 # entra con el mismo usuario y tiene que ver algo que aprobar. En cada arranque, sobre la copia
 # recién restaurada: el usuario del revisor recibe el permiso de aprobar, y se enlaza un servicio
@@ -256,6 +273,7 @@ servir () {
   local apid=$!
   HTTP_PID=
   puerto_http
+  if ! ( clave_del_revisor ); then say "the reviewer password was NOT reset (the error is above); the old one still applies"; fi
   # Apagable con DEMO_REQUESTS=0 (la demo queda como estaba: solo la terminal).
   local ppid=
   # En un subshell: si no se pueden montar, se dice y la terminal de la demo sigue sirviendo
