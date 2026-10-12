@@ -199,8 +199,11 @@ pedidos_de_muestra () {
   reintentar as_vault dotrino-vault secret set "$SERVICIO" API_KEY "clave-de-muestra" || die "sample requests: could not store the sample key"
   inv=$(as_vault dotrino-vault pair --quiet --service "$SERVICIO" --name "Servidor de prueba") \
     || die "sample requests: could not create the invitation"
-  install -d -o tester -g tester -m 0700 "$RUN/servicio"
-  as_tester env DOTRINO_ENV_HOME="$RUN/servicio" \
+  # Corre con el usuario de la bóveda: solo así alcanza su mostrador local, que es por donde
+  # el pedido lleva el comando (por el proxio va sin él y el teléfono decía «no dice qué está
+  # ejecutando»). No es del revisor: es un proceso de la demo.
+  install -d -o vault -g vault -m 0700 "$RUN/servicio"
+  as_vault env DOTRINO_ENV_HOME="$RUN/servicio" \
     dotrino-env enroll --ns "$SERVICIO" --code "$inv" >"$out" 2>&1 &
   local epid=$!
   # El servicio enseña un código y un ID; la bóveda lo aprueba (como con la máquina).
@@ -227,11 +230,11 @@ reintentar () {
 # repetirlo no volvería a preguntar). El que nadie contesta vence solo.
 bucle_de_pedidos () {
   local n=0
-  cd "$RUN/home"
+  cd /opt/demo
   while true; do
     n=$((n + 1))
-    as_tester env DOTRINO_ENV_HOME="$RUN/servicio" DOTRINO_ENV_QUIET=1 \
-      timeout "${DEMO_REQUEST_SECONDS:-180}" dotrino-env run --ns "$SERVICIO" -- /bin/echo "deploy $n" >/dev/null 2>&1 || true
+    as_vault env DOTRINO_ENV_HOME="$RUN/servicio" DOTRINO_ENV_QUIET=1 \
+      timeout "${DEMO_REQUEST_SECONDS:-180}" dotrino-env run --ns "$SERVICIO" -- /bin/echo "Dotrino demo: sample deploy $n" >/dev/null 2>&1 || true
     sleep 5
   done
 }
