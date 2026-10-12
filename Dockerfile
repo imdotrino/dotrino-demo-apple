@@ -9,7 +9,7 @@ FROM node:22-bookworm-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/demo
-ARG VAULTD_VERSION=0.141.1
+ARG VAULTD_VERSION=0.150.1
 ARG AGENT_VERSION=0.16.1
 # El servicio de muestra que pide claves (los pedidos que el revisor aprueba en la app Dotrino).
 ARG ENV_VERSION=0.82.1
