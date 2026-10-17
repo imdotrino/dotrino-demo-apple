@@ -20,10 +20,12 @@ MAQUINA=${DEMO_MACHINE_NAME:-Máquina de prueba}
 say () { echo "[demo] $*"; }
 die () { echo "[demo] $*" >&2; exit 1; }
 
+# El entorno de la bóveda, en UN sitio: lo usan as_vault y el `script` de clave_del_revisor.
+VAULT_ENV=(PATH="$PATH" HOME="$RUN/vault" LANG=C.UTF-8
+  DOTRINO_VAULT_DIR="$RUN/vault" XDG_RUNTIME_DIR=/run/vault PROXY_URL="$PROXY")
+
 as_vault () {
-  setpriv --reuid=vault --regid=vault --init-groups \
-    env -i PATH="$PATH" HOME="$RUN/vault" LANG=C.UTF-8 \
-      DOTRINO_VAULT_DIR="$RUN/vault" XDG_RUNTIME_DIR=/run/vault PROXY_URL="$PROXY" "$@"
+  setpriv --reuid=vault --regid=vault --init-groups env -i "${VAULT_ENV[@]}" "$@"
 }
 as_tester () {
   setpriv --reuid=tester --regid=tester --init-groups \
@@ -176,7 +178,7 @@ importar_de_variable () {
 clave_del_revisor () {
   [ -n "${DEMO_PASSWORD:-}" ] || return 0
   [ "${#DEMO_PASSWORD}" -ge 12 ] || die "reviewer password: DEMO_PASSWORD needs 12 characters or more"
-  local vault_env="env -i PATH=$PATH HOME=$RUN/vault LANG=C.UTF-8 DOTRINO_VAULT_DIR=$RUN/vault XDG_RUNTIME_DIR=/run/vault PROXY_URL=$PROXY"
+  local vault_env="env -i ${VAULT_ENV[*]}"
   reintentar as_vault dotrino-vault logins rm "$USUARIO" || die "reviewer password: could not remove the old login"
   # `logins add` lee la contraseña de una terminal: `script` le da una, y aquí se le teclea.
   (sleep 2; echo "$DEMO_PASSWORD"; sleep 1; echo "$DEMO_PASSWORD"; sleep 4) \
