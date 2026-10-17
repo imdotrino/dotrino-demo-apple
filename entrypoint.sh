@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # La demo de Terminal para la revisión de Apple. Dos órdenes:
 #
-#   preparar   UNA vez, con -it: crea la bóveda, el login del revisor (la contraseña se
+#   prepare    UNA vez, con -it: crea la bóveda, el login del revisor (la contraseña se
 #              teclea aquí) y la máquina, y guarda la COPIA en /data/copia.
-#   servir     cada arranque: restaura la copia en /data/run y corre bóveda + máquina.
+#   serve      cada arranque: restaura la copia en /data/run y corre bóveda + máquina.
 #              Todo lo que el revisor cambie se pierde en el siguiente arranque.
 #
 # Corre como root solo para preparar el contenedor; la bóveda corre como `vault` y la
@@ -12,15 +12,15 @@ set -euo pipefail
 
 DATA=/data
 RUN=$DATA/run
-COPIA=$DATA/copia
+SNAPSHOT=$DATA/copia
 PROXY=${DEMO_PROXY:-wss://proxy.dotrino.com}
-USUARIO=${DEMO_USER:-apple}
-MAQUINA=${DEMO_MACHINE_NAME:-Máquina de prueba}
+REVIEWER=${DEMO_USER:-apple}
+MACHINE=${DEMO_MACHINE_NAME:-Máquina de prueba}
 
 say () { echo "[demo] $*"; }
 die () { echo "[demo] $*" >&2; exit 1; }
 
-# El entorno de la bóveda, en UN sitio: lo usan as_vault y el `script` de clave_del_revisor.
+# El entorno de la bóveda, en UN sitio: lo usan as_vault y el `script` de reset_reviewer_password.
 VAULT_ENV=(PATH="$PATH" HOME="$RUN/vault" LANG=C.UTF-8
   DOTRINO_VAULT_DIR="$RUN/vault" XDG_RUNTIME_DIR=/run/vault PROXY_URL="$PROXY")
 
@@ -36,7 +36,7 @@ as_tester () {
 # su disco, y tiene que ser el mismo en cada contenedor o la copia no abre
 # (`kek-machine-changed`). La bóveda lee las dos rutas.
 machine_id () {
-  [ -s "$DATA/machine-id" ] || die "missing $DATA/machine-id: run 'preparar' first"
+  [ -s "$DATA/machine-id" ] || die "missing $DATA/machine-id: run 'prepare' first"
   install -m 0444 "$DATA/machine-id" /etc/machine-id
   mkdir -p /var/lib/dbus && install -m 0444 "$DATA/machine-id" /var/lib/dbus/machine-id
 }
@@ -44,15 +44,15 @@ machine_id () {
 # /data se puede ATRAVESAR pero no listar: `vault` y `tester` llegan a sus carpetas de
 # /data/run, y nadie más que root ve el machine-id, la dirección o la copia. No se fía de cómo
 # se creó el volumen (un directorio 0700 del host dejaba a la bóveda sin poder arrancar).
-permisos_data () {
+fix_data_perms () {
   chmod 0711 "$DATA"
-  for f in machine-id address preparar.log; do [ -e "$DATA/$f" ] && chmod 0600 "$DATA/$f"; done
-  [ -e "$COPIA" ] && chmod 0700 "$COPIA"
+  for f in machine-id address prepare.log; do [ -e "$DATA/$f" ] && chmod 0600 "$DATA/$f"; done
+  [ -e "$SNAPSHOT" ] && chmod 0700 "$SNAPSHOT"
   return 0
 }
 
 # Lo que el revisor puede ensuciar fuera de /data/run, limpio en cada arranque.
-limpiar_temporales () {
+clean_temp () {
   find /tmp /var/tmp /dev/shm -mindepth 1 -delete 2>/dev/null || true
   install -d -o vault -g vault -m 0700 /run/vault
 }
@@ -94,7 +94,7 @@ firewall () {
   say "firewall on: egress only to $host ($(echo $ips | tr '\n' ' '))"
 }
 
-esperar_boveda () {
+wait_for_vault () {
   for _ in $(seq 1 100); do
     as_vault dotrino-vault status >/dev/null 2>&1 && return 0
     sleep 0.2
@@ -102,47 +102,47 @@ esperar_boveda () {
   die "the vault did not start"
 }
 
-preparar () {
-  [ -t 0 ] || die "preparar needs a terminal to type the password: docker run -it …"
-  [ ! -e "$COPIA" ] || die "$COPIA already exists: delete the volume to prepare again (the address changes)"
+prepare () {
+  [ -t 0 ] || die "prepare needs a terminal to type the password: docker run -it …"
+  [ ! -e "$SNAPSHOT" ] || die "$SNAPSHOT already exists: delete the volume to prepare again (the address changes)"
   head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$DATA/machine-id"; echo >> "$DATA/machine-id"
-  permisos_data
+  fix_data_perms
   machine_id
-  limpiar_temporales
+  clean_temp
   rm -rf "$RUN"
   install -d -m 0755 "$RUN"
   install -d -o vault -g vault -m 0700 "$RUN/vault"
   install -d -o tester -g tester -m 0700 "$RUN/maquina" "$RUN/home"
 
   say "starting the vault"
-  as_vault dotrino-vaultd >"$DATA/preparar.log" 2>&1 &
+  as_vault dotrino-vaultd >"$DATA/prepare.log" 2>&1 &
   local vpid=$!
-  esperar_boveda
+  wait_for_vault
 
-  say "login for the reviewer: $USUARIO (type the password twice, 12+ characters)"
-  as_vault dotrino-vault logins add "$USUARIO" "App Review"
+  say "login for the reviewer: $REVIEWER (type the password twice, 12+ characters)"
+  as_vault dotrino-vault logins add "$REVIEWER" "App Review"
 
-  say "linking the machine: $MAQUINA"
-  local inv codigo=/tmp/demo-code
-  inv=$(as_vault dotrino-vault pair --quiet --name "$MAQUINA")
-  as_tester node /opt/demo/enlazar.mjs "$inv" "$RUN/maquina" "$codigo" &
+  say "linking the machine: $MACHINE"
+  local inv code_file=/tmp/demo-code
+  inv=$(as_vault dotrino-vault pair --quiet --name "$MACHINE")
+  as_tester node /opt/demo/link.mjs "$inv" "$RUN/maquina" "$code_file" &
   local epid=$!
-  for _ in $(seq 1 150); do [ -s "$codigo" ] && break; sleep 0.2; done
-  [ -s "$codigo" ] || die "the machine never asked to be approved"
-  as_vault dotrino-vault approve "$(cat "$codigo")"
+  for _ in $(seq 1 150); do [ -s "$code_file" ] && break; sleep 0.2; done
+  [ -s "$code_file" ] || die "the machine never asked to be approved"
+  as_vault dotrino-vault approve "$(cat "$code_file")"
   wait "$epid" || die "linking the machine failed"
 
-  local direccion
-  direccion=$(as_vault dotrino-vault logins | grep -o "$USUARIO@[0-9A-F-]*" | head -1)
+  local address
+  address=$(as_vault dotrino-vault logins | grep -o "$REVIEWER@[0-9A-F-]*" | head -1)
   kill -TERM "$vpid"; wait "$vpid" || true
 
-  cp -a "$RUN" "$COPIA"
-  # La copia es SOLO de root (`permisos_data`): dentro hay carpetas de `tester` (su home, el
+  cp -a "$RUN" "$SNAPSHOT"
+  # La copia es SOLO de root (`fix_data_perms`): dentro hay carpetas de `tester` (su home, el
   # enlace de la máquina) y, si llegara a ellas, plantaría algo que sobreviviría a cada reset.
-  echo "$direccion" > "$DATA/address"
-  permisos_data
+  echo "$address" > "$DATA/address"
+  fix_data_perms
   say "ready. Sign-in information for App Store Connect:"
-  say "  user:     $direccion"
+  say "  user:     $address"
   say "  password: the one you just typed"
 }
 
@@ -150,23 +150,23 @@ preparar () {
 # (Timone), donde llega por la variable DEMO_COPIA_B64. Lleva la bóveda de la demo: quien la
 # tenga controla esa cuenta, así que va a una variable que solo ve el dueño, nunca a la imagen
 # ni a un repo.
-exportar () {
-  [ -d "$COPIA" ] || die "no copy in $COPIA to export"
-  # `exportar 8000` la parte en líneas de 8000: una por variable DEMO_COPIA_B64_<n>.
+export_snapshot () {
+  [ -d "$SNAPSHOT" ] || die "no copy in $SNAPSHOT to export"
+  # `export 8000` la parte en líneas de 8000: una por variable DEMO_COPIA_B64_<n>.
   if [ -n "${2:-}" ]; then tar -C "$DATA" -czf - copia machine-id address | base64 -w "$2"
   else tar -C "$DATA" -czf - copia machine-id address | base64 -w0; fi
   echo
 }
 
-importar_de_variable () {
+import_from_env () {
   # Una variable, o en trozos DEMO_COPIA_B64_1, _2… (Timone limita cada valor a 8192
   # caracteres y la copia no baja de ~56 000: la identidad va cifrada y no se comprime).
   local b64=${DEMO_COPIA_B64:-} n=1 var
   while var="DEMO_COPIA_B64_$n"; [ -n "${!var:-}" ]; do b64+=${!var}; n=$((n + 1)); done
   [ -n "$b64" ] || return 0
-  rm -rf "$COPIA"
+  rm -rf "$SNAPSHOT"
   install -d -m 0711 "$DATA"
-  echo "$b64" | base64 -d | tar -C "$DATA" -xzpf - || die "DEMO_COPIA_B64 is not a copy made by 'exportar'"
+  echo "$b64" | base64 -d | tar -C "$DATA" -xzpf - || die "DEMO_COPIA_B64 is not a copy made by 'export'"
   say "copy loaded from DEMO_COPIA_B64 ($(( n - 1 )) parts)"
 }
 
@@ -175,15 +175,15 @@ importar_de_variable () {
 # DEMO_PASSWORD, cada arranque quita el usuario y lo vuelve a crear con esa contraseña: la
 # dirección es la misma (sale del perfil) y lo único que cambia es el ID de su aparato. Va a una
 # variable que solo ve el dueño, nunca al repo ni a la imagen.
-clave_del_revisor () {
+reset_reviewer_password () {
   [ -n "${DEMO_PASSWORD:-}" ] || return 0
   [ "${#DEMO_PASSWORD}" -ge 12 ] || die "reviewer password: DEMO_PASSWORD needs 12 characters or more"
   local vault_env="env -i ${VAULT_ENV[*]}"
-  reintentar as_vault dotrino-vault logins rm "$USUARIO" || die "reviewer password: could not remove the old login"
+  retry as_vault dotrino-vault logins rm "$REVIEWER" || die "reviewer password: could not remove the old login"
   # `logins add` lee la contraseña de una terminal: `script` le da una, y aquí se le teclea.
   (sleep 2; echo "$DEMO_PASSWORD"; sleep 1; echo "$DEMO_PASSWORD"; sleep 4) \
-    | script -qec "setpriv --reuid=vault --regid=vault --init-groups $vault_env dotrino-vault logins add '$USUARIO' 'App Review' +aprueba" /dev/null >/dev/null 2>&1
-  as_vault dotrino-vault logins | grep -q "$USUARIO@" || die "reviewer password: the login was not created"
+    | script -qec "setpriv --reuid=vault --regid=vault --init-groups $vault_env dotrino-vault logins add '$REVIEWER' 'App Review' +aprueba" /dev/null >/dev/null 2>&1
+  as_vault dotrino-vault logins | grep -q "$REVIEWER@" || die "reviewer password: the login was not created"
   say "reviewer login reset from DEMO_PASSWORD (same address)"
 }
 
@@ -192,79 +192,79 @@ clave_del_revisor () {
 # recién restaurada: el usuario del revisor recibe el permiso de aprobar, y se enlaza un servicio
 # («Servidor de prueba») que pide las claves de su cajón cada DEMO_REQUEST_SECONDS. No toca la
 # copia: la dirección y la contraseña siguen siendo las mismas, y un reset lo rehace.
-SERVICIO=demo
-pedidos_de_muestra () {
-  local id inv sid codigo=/tmp/demo-service-code out=/tmp/demo-service-enroll
-  id=$(as_vault dotrino-vault logins | sed 's/\x1b\[[0-9;]*m//g' | awk -v u="$USUARIO@" 'index($0, u) {print $3; exit}')
-  [ -n "$id" ] || die "sample requests: login $USUARIO not found"
-  reintentar as_vault dotrino-vault caps "$id" +aprueba || die "sample requests: could not grant approve to $id"
-  reintentar as_vault dotrino-vault secret set "$SERVICIO" API_KEY "clave-de-muestra" || die "sample requests: could not store the sample key"
-  inv=$(as_vault dotrino-vault pair --quiet --service "$SERVICIO" --name "Servidor de prueba") \
+SERVICE=demo
+sample_requests () {
+  local id inv sid code=/tmp/demo-service-code out=/tmp/demo-service-enroll
+  id=$(as_vault dotrino-vault logins | sed 's/\x1b\[[0-9;]*m//g' | awk -v u="$REVIEWER@" 'index($0, u) {print $3; exit}')
+  [ -n "$id" ] || die "sample requests: login $REVIEWER not found"
+  retry as_vault dotrino-vault caps "$id" +aprueba || die "sample requests: could not grant approve to $id"
+  retry as_vault dotrino-vault secret set "$SERVICE" API_KEY "clave-de-muestra" || die "sample requests: could not store the sample key"
+  inv=$(as_vault dotrino-vault pair --quiet --service "$SERVICE" --name "Servidor de prueba") \
     || die "sample requests: could not create the invitation"
   # Corre con el usuario de la bóveda: solo así alcanza su mostrador local, que es por donde
   # el pedido lleva el comando (por el proxio va sin él y el teléfono decía «no dice qué está
   # ejecutando»). No es del revisor: es un proceso de la demo.
   install -d -o vault -g vault -m 0700 "$RUN/servicio"
   as_vault env DOTRINO_ENV_HOME="$RUN/servicio" \
-    dotrino-env enroll --ns "$SERVICIO" --code "$inv" >"$out" 2>&1 &
+    dotrino-env enroll --ns "$SERVICE" --code "$inv" >"$out" 2>&1 &
   local epid=$!
   # El servicio enseña un código y un ID; la bóveda lo aprueba (como con la máquina).
   for _ in $(seq 1 150); do grep -q 'dotrino-vault approve' "$out" 2>/dev/null && break; sleep 0.2; done
-  codigo=$(sed 's/\x1b\[[0-9;]*m//g' "$out" | awk '/dotrino-vault approve/ {print $3; exit}')
+  code=$(sed 's/\x1b\[[0-9;]*m//g' "$out" | awk '/dotrino-vault approve/ {print $3; exit}')
   sid=$(sed 's/\x1b\[[0-9;]*m//g' "$out" | awk '/Dispositivo:/ {print $2; exit}')
-  [ -n "$codigo" ] && [ -n "$sid" ] || die "sample requests: the sample service never asked to be approved"
-  as_vault dotrino-vault approve "$codigo" >/dev/null || die "sample requests: could not approve the sample service"
+  [ -n "$code" ] && [ -n "$sid" ] || die "sample requests: the sample service never asked to be approved"
+  as_vault dotrino-vault approve "$code" >/dev/null || die "sample requests: could not approve the sample service"
   wait "$epid" || die "sample requests: the sample service could not enroll"
   # Pedir aprobación es el defecto de la bóveda: el servicio no recibe sus claves hasta que un
   # aparato con «aprueba» dice que sí. No hay nada más que marcar.
   rm -f "$out"
-  say "sample requests on: $USUARIO ($id) can approve; $sid asks every ${DEMO_REQUEST_SECONDS:-180}s"
+  say "sample requests on: $REVIEWER ($id) can approve; $sid asks every ${DEMO_REQUEST_SECONDS:-180}s"
 }
 
 # La bóveda aplica un cambio del acta cada vez: el siguiente, pegado, puede llegar antes de que
 # termine. Se reintenta unos segundos y, si sigue sin entrar, se dice.
-reintentar () {
+retry () {
   for _ in 1 2 3 4 5 6; do "$@" >/dev/null 2>&1 && return 0; sleep 1; done
   "$@" >/dev/null
 }
 
 # Un pedido cada vez, con un comando distinto (la bóveda recuerda una hora el comando aprobado:
 # repetirlo no volvería a preguntar). El que nadie contesta vence solo.
-bucle_de_pedidos () {
+request_loop () {
   local n=0
   cd /opt/demo
   while true; do
     n=$((n + 1))
     as_vault env DOTRINO_ENV_HOME="$RUN/servicio" DOTRINO_ENV_QUIET=1 \
-      timeout "${DEMO_REQUEST_SECONDS:-180}" dotrino-env run --ns "$SERVICIO" -- /bin/echo "Dotrino demo: sample deploy $n" >/dev/null 2>&1 || true
+      timeout "${DEMO_REQUEST_SECONDS:-180}" dotrino-env run --ns "$SERVICE" -- /bin/echo "Dotrino demo: sample deploy $n" >/dev/null 2>&1 || true
     sleep 5
   done
 }
 
 # Un 200 en un puerto, para la plataforma que exige uno (Timone). No sirve nada de la demo.
-puerto_http () {
+http_port () {
   [ -n "${DEMO_HTTP_PORT:-}" ] || return 0
   setpriv --reuid=nobody --regid=nogroup --clear-groups env -i PATH="$PATH" \
     node -e "require('http').createServer((q, r) => r.end('ok\\n')).listen(+process.argv[1])" "$DEMO_HTTP_PORT" &
   HTTP_PID=$!
 }
 
-servir () {
-  importar_de_variable
-  if [ ! -d "$COPIA" ]; then
+serve () {
+  import_from_env
+  if [ ! -d "$SNAPSHOT" ]; then
     # Sin copia no hay nada que servir. Se espera en vez de salir: en Fly la preparación se
     # hace DENTRO de esta máquina (fly ssh console), y salir la metería en un bucle de reinicios.
-    say "no copy in $COPIA: nothing to serve. Prepare it inside this container, then restart it:"
-    say "  docker exec -it <container> /opt/demo/entrypoint.sh preparar"
-    say "  fly ssh console -C '/opt/demo/entrypoint.sh preparar'"
+    say "no copy in $SNAPSHOT: nothing to serve. Prepare it inside this container, then restart it:"
+    say "  docker exec -it <container> /opt/demo/entrypoint.sh prepare"
+    say "  fly ssh console -C '/opt/demo/entrypoint.sh prepare'"
     exec sleep infinity
   fi
-  permisos_data
+  fix_data_perms
   machine_id
-  limpiar_temporales
+  clean_temp
   firewall
   rm -rf "$RUN"
-  cp -a "$COPIA" "$RUN"
+  cp -a "$SNAPSHOT" "$RUN"
   chmod 0755 "$RUN"   # `cp -a` le pasa el 0700 de la copia; dentro, cada carpeta tiene el suyo
   # Estado de ejecución que no debe venir de la copia: el pid de otro contenedor puede
   # coincidir con un proceso de este y hacer creer que ya corre otra bóveda u otro agente.
@@ -273,18 +273,18 @@ servir () {
   say "serving $(cat "$DATA/address" 2>/dev/null) through $PROXY"
   as_vault dotrino-vaultd &
   local vpid=$!
-  esperar_boveda
+  wait_for_vault
   as_tester dotrino-terminal-agent --dir "$RUN/maquina" --proxy "$PROXY" --shell /bin/bash &
   local apid=$!
   HTTP_PID=
-  puerto_http
-  if ! ( clave_del_revisor ); then say "the reviewer password was NOT reset (the error is above); the old one still applies"; fi
+  http_port
+  if ! ( reset_reviewer_password ); then say "the reviewer password was NOT reset (the error is above); the old one still applies"; fi
   # Apagable con DEMO_REQUESTS=0 (la demo queda como estaba: solo la terminal).
   local ppid=
   # En un subshell: si no se pueden montar, se dice y la terminal de la demo sigue sirviendo
   # (un `die` aquí metería el contenedor en un bucle de reinicios y tumbaría las dos demos).
   if [ "${DEMO_REQUESTS:-1}" = 1 ]; then
-    if ( pedidos_de_muestra ); then bucle_de_pedidos & ppid=$!
+    if ( sample_requests ); then request_loop & ppid=$!
     else say "sample requests are OFF (the error is above); the terminal demo keeps running"; fi
   fi
 
@@ -307,9 +307,9 @@ servir () {
 # plataforma que no lo documenta (Timone) es lo primero que hay que saber, y sale en el log.
 say "running as uid $(id -u), effective capabilities $(awk '/^CapEff/ {print $2}' /proc/self/status)" >&2
 
-case "${1:-servir}" in
-  preparar) preparar ;;
-  exportar) exportar "$@" ;;
-  servir) servir ;;
-  *) die "usage: preparar | servir | exportar" ;;
+case "${1:-serve}" in
+  prepare) prepare ;;
+  export) export_snapshot "$@" ;;
+  serve) serve ;;
+  *) die "usage: prepare | serve | export" ;;
 esac

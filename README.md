@@ -37,7 +37,7 @@ Necesita la app Dotrino ≥ 0.4.21 (Android, con Identidad Dotrino ≥ 0.2.6) o 
 - Paquetes de npm con versión fija (`VAULTD_VERSION`, `AGENT_VERSION` en el `Dockerfile`).
 
 Lo prueban, desde [`dotrino-test`](https://github.com/imdotrino/dotrino-test),
-`npm run smoke:demo-apple` (imagen, preparar, servir, aislamiento, reset y la copia por
+`npm run smoke:demo-apple` (imagen, `prepare`, `serve`, aislamiento, reset y la copia por
 variable) y `npm run smoke:demo-restaurar` (la copia en otro contenedor).
 
 ## Preparar (una vez)
@@ -45,7 +45,7 @@ variable) y `npm run smoke:demo-restaurar` (la copia en otro contenedor).
 ```bash
 docker build -t dotrino-demo-apple .
 docker volume create demo-apple
-docker run --rm -it -v demo-apple:/data dotrino-demo-apple preparar
+docker run --rm -it -v demo-apple:/data dotrino-demo-apple prepare
 ```
 
 Pide la contraseña del revisor dos veces (12 caracteres o más) y termina con la dirección.
@@ -68,7 +68,7 @@ docker run -d --name demo-apple --restart always \
 | `DEMO_RESET_SECONDS` | el contenedor sale pasado ese tiempo y `--restart` lo levanta desde la copia |
 | `DEMO_FIREWALL=1` | solo deja salir hacia el proxio (y el DNS). Necesita `NET_ADMIN`; si no puede aplicarse, no arranca |
 | `DEMO_PROXY` | el proxio (por defecto `wss://proxy.dotrino.com`) |
-| `DEMO_COPIA_B64`, o `DEMO_COPIA_B64_1`, `_2`… | la copia (sale de `exportar`; `exportar 8000` la parte en líneas de 8000, una por variable), para plataformas sin disco persistente |
+| `DEMO_COPIA_B64`, o `DEMO_COPIA_B64_1`, `_2`… | la copia (sale de `export`; `export 8000` la parte en líneas de 8000, una por variable), para plataformas sin disco persistente |
 | `DEMO_PASSWORD` | la contraseña del revisor (12 o más). Cada arranque recrea su usuario con ella: misma dirección. Sin la variable vale la que se tecleó al preparar |
 | `DEMO_REQUESTS=0` / `DEMO_REQUEST_SECONDS` | apaga los pedidos de muestra / cada cuánto se pide (180) |
 | `DEMO_HTTP_PORT` | contesta `ok` en ese puerto, para la plataforma que exige uno |
@@ -88,8 +88,8 @@ nuevo es un reset. Timone limita cada variable a 8192 caracteres y la copia rond
 - **Preparar** se hace donde haya disco (en local, con un volumen de Docker) y luego se exporta:
 
 ```bash
-docker run --rm -it -v demo-apple:/data dotrino-demo-apple preparar
-docker run --rm -v demo-apple:/data dotrino-demo-apple exportar 8000   # una línea por variable DEMO_COPIA_B64_<n>
+docker run --rm -it -v demo-apple:/data dotrino-demo-apple prepare
+docker run --rm -v demo-apple:/data dotrino-demo-apple export 8000   # una línea por variable DEMO_COPIA_B64_<n>
 ```
 
 - La app se crea por la API (`POST /projects` con este repo) con las variables en `envVars`:
