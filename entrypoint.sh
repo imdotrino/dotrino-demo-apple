@@ -2,7 +2,7 @@
 # La demo de Terminal para la revisión de Apple. Dos órdenes:
 #
 #   prepare    UNA vez, con -it: crea la bóveda, el login del revisor (la contraseña se
-#              teclea aquí) y la máquina, y guarda la COPIA en /data/copia.
+#              teclea aquí) y la máquina, y guarda la COPIA en /data/snapshot.
 #   serve      cada arranque: restaura la copia en /data/run y corre bóveda + máquina.
 #              Todo lo que el revisor cambie se pierde en el siguiente arranque.
 #
@@ -12,7 +12,7 @@ set -euo pipefail
 
 DATA=/data
 RUN=$DATA/run
-SNAPSHOT=$DATA/copia
+SNAPSHOT=$DATA/snapshot
 PROXY=${DEMO_PROXY:-wss://proxy.dotrino.com}
 REVIEWER=${DEMO_USER:-apple}
 MACHINE=${DEMO_MACHINE_NAME:-Máquina de prueba}
@@ -103,6 +103,7 @@ wait_for_vault () {
 }
 
 prepare () {
+  migrate_snapshot
   [ -t 0 ] || die "prepare needs a terminal to type the password: docker run -it …"
   [ ! -e "$SNAPSHOT" ] || die "$SNAPSHOT already exists: delete the volume to prepare again (the address changes)"
   head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$DATA/machine-id"; echo >> "$DATA/machine-id"
@@ -112,7 +113,7 @@ prepare () {
   rm -rf "$RUN"
   install -d -m 0755 "$RUN"
   install -d -o vault -g vault -m 0700 "$RUN/vault"
-  install -d -o tester -g tester -m 0700 "$RUN/maquina" "$RUN/home"
+  install -d -o tester -g tester -m 0700 "$RUN/machine" "$RUN/home"
 
   say "starting the vault"
   as_vault dotrino-vaultd >"$DATA/prepare.log" 2>&1 &
@@ -125,7 +126,7 @@ prepare () {
   say "linking the machine: $MACHINE"
   local inv code_file=/tmp/demo-code
   inv=$(as_vault dotrino-vault pair --quiet --name "$MACHINE")
-  as_tester node /opt/demo/link.mjs "$inv" "$RUN/maquina" "$code_file" &
+  as_tester node /opt/demo/link.mjs "$inv" "$RUN/machine" "$code_file" &
   local epid=$!
   for _ in $(seq 1 150); do [ -s "$code_file" ] && break; sleep 0.2; done
   [ -s "$code_file" ] || die "the machine never asked to be approved"
@@ -147,27 +148,53 @@ prepare () {
 }
 
 # La copia como UNA línea de texto (tar.gz en base64): para plataformas sin disco persistente
-# (Timone), donde llega por la variable DEMO_COPIA_B64. Lleva la bóveda de la demo: quien la
+# (Timone), donde llega por la variable DEMO_SNAPSHOT_B64. Lleva la bóveda de la demo: quien la
 # tenga controla esa cuenta, así que va a una variable que solo ve el dueño, nunca a la imagen
 # ni a un repo.
 export_snapshot () {
   [ -d "$SNAPSHOT" ] || die "no copy in $SNAPSHOT to export"
-  # `export 8000` la parte en líneas de 8000: una por variable DEMO_COPIA_B64_<n>.
-  if [ -n "${2:-}" ]; then tar -C "$DATA" -czf - copia machine-id address | base64 -w "$2"
-  else tar -C "$DATA" -czf - copia machine-id address | base64 -w0; fi
+  # `export 8000` la parte en líneas de 8000: una por variable DEMO_SNAPSHOT_B64_<n>.
+  if [ -n "${2:-}" ]; then tar -C "$DATA" -czf - snapshot machine-id address | base64 -w "$2"
+  else tar -C "$DATA" -czf - snapshot machine-id address | base64 -w0; fi
   echo
 }
 
+# Lee la variable $1, o sus trozos $1_1, $1_2…, y deja el texto en $b64 y el número de
+# trozos en $parts (las dos son `local` de quien llama).
+read_snapshot_vars () {
+  local prefix=$1 var
+  b64=${!prefix:-} parts=0
+  while var="${prefix}_$((parts + 1))"; [ -n "${!var:-}" ]; do b64+=${!var}; parts=$((parts + 1)); done
+}
+
 import_from_env () {
-  # Una variable, o en trozos DEMO_COPIA_B64_1, _2… (Timone limita cada valor a 8192
+  # Una variable, o en trozos DEMO_SNAPSHOT_B64_1, _2… (Timone limita cada valor a 8192
   # caracteres y la copia no baja de ~56 000: la identidad va cifrada y no se comprime).
-  local b64=${DEMO_COPIA_B64:-} n=1 var
-  while var="DEMO_COPIA_B64_$n"; [ -n "${!var:-}" ]; do b64+=${!var}; n=$((n + 1)); done
+  local b64 parts name=DEMO_SNAPSHOT_B64
+  read_snapshot_vars "$name"
+  # migration: remove after 2027-01-01. La variable se llamaba DEMO_COPIA_B64; mientras el
+  # panel de Timone no la renombre, se lee la vieja y se dice.
+  if [ -z "$b64" ]; then
+    name=DEMO_COPIA_B64
+    read_snapshot_vars "$name"
+    [ -z "$b64" ] || say "DEMO_COPIA_B64 is deprecated: rename it to DEMO_SNAPSHOT_B64 (same value)"
+  fi
   [ -n "$b64" ] || return 0
-  rm -rf "$SNAPSHOT"
+  rm -rf "$SNAPSHOT" "$DATA/copia"
   install -d -m 0711 "$DATA"
-  echo "$b64" | base64 -d | tar -C "$DATA" -xzpf - || die "DEMO_COPIA_B64 is not a copy made by 'export'"
-  say "copy loaded from DEMO_COPIA_B64 ($(( n - 1 )) parts)"
+  echo "$b64" | base64 -d | tar -C "$DATA" -xzpf - || die "$name is not a snapshot made by 'export'"
+  migrate_snapshot
+  say "snapshot loaded from $name ($parts parts)"
+}
+
+# migration: remove after 2027-01-01. Las copias preparadas antes del 2026-10-18 llaman
+# `copia` a la copia y `maquina` al enlace de la máquina. El enlace no guarda su ruta
+# (dotrino-test/smoke/demo-restore.mjs lo restaura en directorios nuevos), así que basta con
+# renombrar las carpetas.
+migrate_snapshot () {
+  if [ -d "$DATA/copia" ] && [ ! -e "$SNAPSHOT" ]; then mv "$DATA/copia" "$SNAPSHOT"; say "migrated $DATA/copia to $SNAPSHOT"; fi
+  if [ -d "$SNAPSHOT/maquina" ] && [ ! -e "$SNAPSHOT/machine" ]; then mv "$SNAPSHOT/maquina" "$SNAPSHOT/machine"; say "migrated the machine link to $SNAPSHOT/machine"; fi
+  return 0
 }
 
 # LA CONTRASEÑA DEL REVISOR, por variable. La que se tecleó al preparar vive solo en la copia
@@ -204,8 +231,8 @@ sample_requests () {
   # Corre con el usuario de la bóveda: solo así alcanza su mostrador local, que es por donde
   # el pedido lleva el comando (por el proxio va sin él y el teléfono decía «no dice qué está
   # ejecutando»). No es del revisor: es un proceso de la demo.
-  install -d -o vault -g vault -m 0700 "$RUN/servicio"
-  as_vault env DOTRINO_ENV_HOME="$RUN/servicio" \
+  install -d -o vault -g vault -m 0700 "$RUN/service"
+  as_vault env DOTRINO_ENV_HOME="$RUN/service" \
     dotrino-env enroll --ns "$SERVICE" --code "$inv" >"$out" 2>&1 &
   local epid=$!
   # El servicio enseña un código y un ID; la bóveda lo aprueba (como con la máquina).
@@ -235,7 +262,7 @@ request_loop () {
   cd /opt/demo
   while true; do
     n=$((n + 1))
-    as_vault env DOTRINO_ENV_HOME="$RUN/servicio" DOTRINO_ENV_QUIET=1 \
+    as_vault env DOTRINO_ENV_HOME="$RUN/service" DOTRINO_ENV_QUIET=1 \
       timeout "${DEMO_REQUEST_SECONDS:-180}" dotrino-env run --ns "$SERVICE" -- /bin/echo "Dotrino demo: sample deploy $n" >/dev/null 2>&1 || true
     sleep 5
   done
@@ -250,6 +277,7 @@ http_port () {
 }
 
 serve () {
+  migrate_snapshot
   import_from_env
   if [ ! -d "$SNAPSHOT" ]; then
     # Sin copia no hay nada que servir. Se espera en vez de salir: en Fly la preparación se
@@ -268,13 +296,13 @@ serve () {
   chmod 0755 "$RUN"   # `cp -a` le pasa el 0700 de la copia; dentro, cada carpeta tiene el suyo
   # Estado de ejecución que no debe venir de la copia: el pid de otro contenedor puede
   # coincidir con un proceso de este y hacer creer que ya corre otra bóveda u otro agente.
-  rm -f "$RUN/vault/vault.lock" "$RUN/vault/state.json" "$RUN/maquina/agent.pid"
+  rm -f "$RUN/vault/vault.lock" "$RUN/vault/state.json" "$RUN/machine/agent.pid"
 
   say "serving $(cat "$DATA/address" 2>/dev/null) through $PROXY"
   as_vault dotrino-vaultd &
   local vpid=$!
   wait_for_vault
-  as_tester dotrino-terminal-agent --dir "$RUN/maquina" --proxy "$PROXY" --shell /bin/bash &
+  as_tester dotrino-terminal-agent --dir "$RUN/machine" --proxy "$PROXY" --shell /bin/bash &
   local apid=$!
   HTTP_PID=
   http_port

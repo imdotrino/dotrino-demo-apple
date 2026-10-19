@@ -27,7 +27,7 @@ Necesita la app Dotrino ≥ 0.4.21 (Android, con Identidad Dotrino ≥ 0.2.6) o 
 | `vault` | `dotrino-vaultd` | `/data/run/vault` (0700) y su socket en `/run/vault` (0700) |
 | `tester` | `dotrino-terminal-agent` y las shells del revisor | su home y el enlace de la máquina |
 
-- **Cada arranque restaura la copia** (`/data/copia` → `/data/run`), con el home del revisor
+- **Cada arranque restaura la copia** (`/data/snapshot` → `/data/run`), con el home del revisor
   incluido. Lo que cambie se pierde al reiniciar. La dirección no cambia: sale del perfil, que
   viaja en la copia.
 - **El `machine-id` vive en el volumen** (`/data/machine-id`). De él sale la clave con la que la
@@ -68,7 +68,7 @@ docker run -d --name demo-apple --restart always \
 | `DEMO_RESET_SECONDS` | el contenedor sale pasado ese tiempo y `--restart` lo levanta desde la copia |
 | `DEMO_FIREWALL=1` | solo deja salir hacia el proxio (y el DNS). Necesita `NET_ADMIN`; si no puede aplicarse, no arranca |
 | `DEMO_PROXY` | el proxio (por defecto `wss://proxy.dotrino.com`) |
-| `DEMO_COPIA_B64`, o `DEMO_COPIA_B64_1`, `_2`… | la copia (sale de `export`; `export 8000` la parte en líneas de 8000, una por variable), para plataformas sin disco persistente |
+| `DEMO_SNAPSHOT_B64`, o `DEMO_SNAPSHOT_B64_1`, `_2`… | la copia (sale de `export`; `export 8000` la parte en líneas de 8000, una por variable), para plataformas sin disco persistente |
 | `DEMO_PASSWORD` | la contraseña del revisor (12 o más). Cada arranque recrea su usuario con ella: misma dirección. Sin la variable vale la que se tecleó al preparar |
 | `DEMO_REQUESTS=0` / `DEMO_REQUEST_SECONDS` | apaga los pedidos de muestra / cada cuánto se pide (180) |
 | `DEMO_HTTP_PORT` | contesta `ok` en ese puerto, para la plataforma que exige uno |
@@ -78,9 +78,9 @@ docker run -d --name demo-apple --restart always \
 
 [Timone](https://timone.dev) construye este repo (el `Dockerfile` de la raíz) y lo corre en
 Kubernetes. Las apps de Timone **no tienen disco persistente**, y no hace falta: la copia no
-cambia después de preparada, así que llega por la variable `DEMO_COPIA_B64`, y cada contenedor
+cambia después de preparada, así que llega por la variable `DEMO_SNAPSHOT_B64`, y cada contenedor
 nuevo es un reset. Timone limita cada variable a 8192 caracteres y la copia ronda los 56 000
-(la identidad va cifrada y no se comprime), así que va en trozos `DEMO_COPIA_B64_1`, `_2`…
+(la identidad va cifrada y no se comprime), así que va en trozos `DEMO_SNAPSHOT_B64_1`, `_2`…
 
 - **La copia nunca va en el repo ni en la imagen.** Lleva la bóveda de la demo: quien la tenga
   controla la cuenta (cambia la contraseña del revisor, se añade aparatos). La variable solo la
@@ -89,11 +89,11 @@ nuevo es un reset. Timone limita cada variable a 8192 caracteres y la copia rond
 
 ```bash
 docker run --rm -it -v demo-apple:/data dotrino-demo-apple prepare
-docker run --rm -v demo-apple:/data dotrino-demo-apple export 8000   # una línea por variable DEMO_COPIA_B64_<n>
+docker run --rm -v demo-apple:/data dotrino-demo-apple export 8000   # una línea por variable DEMO_SNAPSHOT_B64_<n>
 ```
 
 - La app se crea por la API (`POST /projects` con este repo) con las variables en `envVars`:
-  los trozos `DEMO_COPIA_B64_<n>`, `DEMO_HTTP_PORT=8080` y `DEMO_RESET_SECONDS=3600`. Cada push a
+  los trozos `DEMO_SNAPSHOT_B64_<n>`, `DEMO_HTTP_PORT=8080` y `DEMO_RESET_SECONDS=3600`. Cada push a
   `main` redespliega solo (Timone registra un webhook), y redesplegar también es un reset.
 
 **En marcha** desde el 2026-10-06: proyecto `cmuw6jfpp00107hgeav2mbj12`,

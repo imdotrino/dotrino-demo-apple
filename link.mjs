@@ -8,13 +8,13 @@
 import fs from 'node:fs'
 import { enroll, parseQr } from '/opt/demo/node_modules/@dotrino/terminal-agent/link.js'
 
-const [inv, dir, codigo] = process.argv.slice(2)
-if (!inv || !dir || !codigo) { console.error('usage: node link.mjs <invite> <dir> <code-file>'); process.exit(2) }
+const [inv, dir, codeFile] = process.argv.slice(2)
+if (!inv || !dir || !codeFile) { console.error('usage: node link.mjs <invite> <dir> <code-file>'); process.exit(2) }
 await enroll({
   qr: await parseQr(inv),
   dir,
   onChallenge: ({ code, deviceId }) => {
-    fs.writeFileSync(codigo, code + '\n')
+    fs.writeFileSync(codeFile, code + '\n')
     console.log(`machine ${deviceId} waiting for approval`)
   }
 })
