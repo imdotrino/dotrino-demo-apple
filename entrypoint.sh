@@ -103,7 +103,6 @@ wait_for_vault () {
 }
 
 prepare () {
-  migrate_snapshot
   [ -t 0 ] || die "prepare needs a terminal to type the password: docker run -it …"
   [ ! -e "$SNAPSHOT" ] || die "$SNAPSHOT already exists: delete the volume to prepare again (the address changes)"
   head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$DATA/machine-id"; echo >> "$DATA/machine-id"
@@ -172,29 +171,11 @@ import_from_env () {
   # caracteres y la copia no baja de ~56 000: la identidad va cifrada y no se comprime).
   local b64 parts name=DEMO_SNAPSHOT_B64
   read_snapshot_vars "$name"
-  # migration: remove after 2027-01-01. La variable se llamaba DEMO_COPIA_B64; mientras el
-  # panel de Timone no la renombre, se lee la vieja y se dice.
-  if [ -z "$b64" ]; then
-    name=DEMO_COPIA_B64
-    read_snapshot_vars "$name"
-    [ -z "$b64" ] || say "DEMO_COPIA_B64 is deprecated: rename it to DEMO_SNAPSHOT_B64 (same value)"
-  fi
   [ -n "$b64" ] || return 0
-  rm -rf "$SNAPSHOT" "$DATA/copia"
+  rm -rf "$SNAPSHOT"
   install -d -m 0711 "$DATA"
   echo "$b64" | base64 -d | tar -C "$DATA" -xzpf - || die "$name is not a snapshot made by 'export'"
-  migrate_snapshot
   say "snapshot loaded from $name ($parts parts)"
-}
-
-# migration: remove after 2027-01-01. Las copias preparadas antes del 2026-10-18 llaman
-# `copia` a la copia y `maquina` al enlace de la máquina. El enlace no guarda su ruta
-# (dotrino-test/smoke/demo-restore.mjs lo restaura en directorios nuevos), así que basta con
-# renombrar las carpetas.
-migrate_snapshot () {
-  if [ -d "$DATA/copia" ] && [ ! -e "$SNAPSHOT" ]; then mv "$DATA/copia" "$SNAPSHOT"; say "migrated $DATA/copia to $SNAPSHOT"; fi
-  if [ -d "$SNAPSHOT/maquina" ] && [ ! -e "$SNAPSHOT/machine" ]; then mv "$SNAPSHOT/maquina" "$SNAPSHOT/machine"; say "migrated the machine link to $SNAPSHOT/machine"; fi
-  return 0
 }
 
 # LA CONTRASEÑA DEL REVISOR, por variable. La que se tecleó al preparar vive solo en la copia
@@ -277,7 +258,6 @@ http_port () {
 }
 
 serve () {
-  migrate_snapshot
   import_from_env
   if [ ! -d "$SNAPSHOT" ]; then
     # Sin copia no hay nada que servir. Se espera en vez de salir: en Fly la preparación se
