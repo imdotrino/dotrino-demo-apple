@@ -190,7 +190,7 @@ reset_reviewer_password () {
   retry as_vault dotrino-vault logins rm "$REVIEWER" || die "reviewer password: could not remove the old login"
   # `logins add` lee la contraseña de una terminal: `script` le da una, y aquí se le teclea.
   (sleep 2; echo "$DEMO_PASSWORD"; sleep 1; echo "$DEMO_PASSWORD"; sleep 4) \
-    | script -qec "setpriv --reuid=vault --regid=vault --init-groups $vault_env dotrino-vault logins add '$REVIEWER' 'App Review' +aprueba" /dev/null >/dev/null 2>&1
+    | script -qec "setpriv --reuid=vault --regid=vault --init-groups $vault_env dotrino-vault logins add '$REVIEWER' 'App Review' +approve" /dev/null >/dev/null 2>&1
   as_vault dotrino-vault logins | grep -q "$REVIEWER@" || die "reviewer password: the login was not created"
   say "reviewer login reset from DEMO_PASSWORD (same address)"
 }
@@ -205,7 +205,7 @@ sample_requests () {
   local id inv sid code=/tmp/demo-service-code out=/tmp/demo-service-enroll
   id=$(as_vault dotrino-vault logins | sed 's/\x1b\[[0-9;]*m//g' | awk -v u="$REVIEWER@" 'index($0, u) {print $3; exit}')
   [ -n "$id" ] || die "sample requests: login $REVIEWER not found"
-  retry as_vault dotrino-vault caps "$id" +aprueba || die "sample requests: could not grant approve to $id"
+  retry as_vault dotrino-vault caps "$id" +approve || die "sample requests: could not grant approve to $id"
   retry as_vault dotrino-vault secret set "$SERVICE" API_KEY "clave-de-muestra" || die "sample requests: could not store the sample key"
   inv=$(as_vault dotrino-vault pair --quiet --service "$SERVICE" --name "Servidor de prueba") \
     || die "sample requests: could not create the invitation"
